@@ -3,3 +3,5 @@
 .settings/
 __pycache__/
 *.pyc
+DO_NOT_UPDATE
+*.conf

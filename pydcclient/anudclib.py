@@ -31,10 +31,13 @@ import logging
 import http.client
 from datetime import datetime
 
-from pydcclient.progress import ProgressFile
+from progress import ProgressFile
 
 
-class AnudcClient():
+VERSION = "0.1-20131022"
+
+
+class AnudcClient:
 
 	def __init__(self):
 		self.__anudc_config = AnudcServerConfig()
@@ -70,7 +73,7 @@ class AnudcClient():
 	
 	def calc_md5(self, filepath):
 		start_time = datetime.now()
-		print("Calculating MD5 for file " + filepath +  "...")
+		print("Calculating MD5 for file " + filepath + "...")
 		block_size = 65536
 		data_file = None
 		try:
@@ -147,19 +150,19 @@ class AnudcClient():
 		for filename, filepath in files_to_upload.items():
 			print("Processing file " + filepath + ":")
 			
-			# Check if the file exists.
-			if not os.path.isfile(filepath):
-				print("File " + filepath + " doesn't exist. Skipping it.")
-				raise Exception("File " + filepath + " doesn't exist.")
-			
-			md = self.calc_md5(filepath)
-			headers = {"Content-Type": "application/octet-stream", "Accept": "text/plain", "Content-MD5": md, "User-Agent": self.__getuseragent()}
-
-			self.__add_auth_header(headers)
-
-			url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + "/" + urllib.parse.quote(filename)
-			print("Uploading " + filepath + " to " + self.__hostname + url + "...")
+			data_file = None
 			try:
+				# Check if the file exists.
+				if not os.path.isfile(filepath):
+					raise Exception("File " + filepath + " doesn't exist.")
+				
+				md = self.calc_md5(filepath)
+				headers = {"Content-Type": "application/octet-stream", "Accept": "text/plain", "Content-MD5": md, "User-Agent": self.__getuseragent()}
+	
+				self.__add_auth_header(headers)
+	
+				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + "/" + urllib.parse.quote(filename)
+				print("Uploading " + filepath + " to " + self.__hostname + url + "...")
 				data_file = ProgressFile(filepath, "rb")
 				
 				connection = self.__create_connection()
@@ -179,10 +182,11 @@ class AnudcClient():
 				print
 			except Exception as e:
 				print()
-				print (e)
+				print(e)
 				file_upload_statuses[filepath] = 0
 			finally:
-				data_file.close()
+				if data_file is not None:
+					data_file.close()
 
 		return file_upload_statuses
 	
@@ -211,7 +215,6 @@ class AnudcServerConfig:
 	def get_config_hostname(self):
 		return self.get_config_value(self.__metadata_section, "host")
 	
-	
 	def get_config_createurl(self):
 		return self.get_config_value(self.__metadata_section, "create_url")
 	
@@ -224,10 +227,8 @@ class AnudcServerConfig:
 	def get_config_token(self):
 		return self.get_config_value(self.__metadata_section, "token")
 
-
 	def get_config_username(self):
 		return self.get_config_value(self.__metadata_section, "username")
-	
 	
 	def get_config_password(self):
 		return self.get_config_value(self.__metadata_section, "password")
@@ -250,7 +251,7 @@ class MetadataFile:
 		self.__relations_section = "relations"
 		
 		self.__config_parser = configparser.ConfigParser()
-		self.__config_parser.optionxform=str
+		self.__config_parser.optionxform = str
 		
 		try:
 			fp = self.__open_file("r")

@@ -29,6 +29,12 @@ import time
 
 UPDATE_CHECK_THRESHOLD = 4 * 3600 * 3600
 LOGGER_NAME = "Updater"
+MANIFEST_FILENAME = "manifest.properties"
+DISABLE_UPDATE_FILE = "DO_NOT_UPDATE"
+TEMP_FILE_SUFFIX = ".tmp"
+
+VERSION = "0.1-20131022"
+
 
 class Updater:
 	
@@ -73,11 +79,11 @@ class Updater:
 
 	
 	def generate_temp_filename(self, filepath):
-		return filepath + ".tmp"
+		return filepath + TEMP_FILE_SUFFIX
 	
 		
 	def strip_temp_suffix(self, filepath=""):
-		if not filepath.endswith(".tmp"):
+		if not filepath.endswith(TEMP_FILE_SUFFIX):
 			raise ValueError()
 
 		return filepath[:-4]
@@ -93,20 +99,25 @@ class Updater:
 			
 
 	def update(self):
-		manifest_old_filepath = self.prepend_base_dir("manifest.properties")
+		# Do not perform update if DO_NOT_UPDATE file exists.
+		if os.path.isfile(self.prepend_base_dir(DISABLE_UPDATE_FILE)):
+			return
+		
+		manifest_old_filepath = self.prepend_base_dir(MANIFEST_FILENAME)
 		manifest_new_filepath = self.prepend_base_dir(self.generate_temp_filename(manifest_old_filepath))
 
 		try:
+			manifest_old = None
+			if os.path.isfile(manifest_old_filepath):
+				manifest_old = self.read_manifest(manifest_old_filepath)
+				
 			# Check for sufficient time since the last update.
-			if self.__force_update or (time.time() - os.path.getmtime(manifest_old_filepath) >= UPDATE_CHECK_THRESHOLD):
+			if self.__force_update or manifest_old is None or (time.time() - os.path.getmtime(manifest_old_filepath) >= UPDATE_CHECK_THRESHOLD):
 				# Download manifest
 				self.delete_if_exists(manifest_new_filepath)
 				self.download_file(self.__manifest_url, manifest_new_filepath)
 				
-				# Read manifests
-				manifest_old = None
-				if os.path.isfile(manifest_old_filepath):
-					manifest_old = self.read_manifest(manifest_old_filepath)
+				# Read new manifest
 				manifest_new = self.read_manifest(manifest_new_filepath)
 				
 				# If a previous manifest is not found or the new manifest is of a newer version, or force update flag set, proceed with update
@@ -122,19 +133,22 @@ class Updater:
 					i = 0
 					for filepath in manifest_new.filepaths:
 						self.download_file(filepath[1], self.prepend_base_dir(self.generate_temp_filename(filepath[0])))
-						self.__logger.info("Downloaded file " + str(++i) + " of " + str(len(manifest_new.filepaths)) + ": " + filepath[0] + " from " + filepath[1])
+						i += 1
+						self.__logger.info("Downloaded file " + str(i) + " of " + str(len(manifest_new.filepaths)) + ": " + filepath[0] + " from " + filepath[1])
 					
 					# Delete existing files
 					i = 0
 					for filepath in manifest_new.filepaths:
 						self.delete_if_exists(self.prepend_base_dir(filepath[0]))
-						self.__logger.info("Deleted existing file " + str(++i) + " of " + str(len(manifest_new.filepaths)) + ": " + filepath[0])
+						i += 1
+						self.__logger.info("Deleted existing file " + str(i) + " of " + str(len(manifest_new.filepaths)) + ": " + filepath[0])
 					
 					# Rename downloaded files to old names
 					i = 0
 					for filepath in manifest_new.filepaths:
 						os.rename(self.prepend_base_dir(self.generate_temp_filename(filepath[0])), self.prepend_base_dir(filepath[0]))
-						self.__logger.info("Renamed file " + str(++i) + " of " + str(len(manifest_new.filepaths)) + ": " + filepath[0])
+						i += 1
+						self.__logger.info("Renamed file " + str(i) + " of " + str(len(manifest_new.filepaths)) + ": " + filepath[0])
 						
 					# Replace old manifest with new manifest
 					self.delete_if_exists(manifest_old_filepath)
@@ -152,7 +166,7 @@ class Updater:
 					os.utime(manifest_old_filepath, None)
 		finally:
 			for filepath in self.__downloaded_files:
-				if filepath.endswith(".tmp"):
+				if filepath.endswith(TEMP_FILE_SUFFIX):
 					self.delete_if_exists(filepath)
 		
 

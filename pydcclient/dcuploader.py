@@ -26,13 +26,16 @@ import argparse
 import os.path
 import logging
 import sys
+from urllib.error import HTTPError
 
-from pydcclient.anudclib import MetadataFile
-from pydcclient.anudclib import AnudcClient
-from updater.updater import Updater
+from anudclib import MetadataFile
+from anudclib import AnudcClient
+from updater import Updater
+
 
 VERSION = "0.1-20131022"
-MANIFEST_URL = "http://localhost:8081/downloads/manifest.properties"
+MANIFEST_URL = "https://raw.github.com/anu-doi/PyAnuDataCommons/master/pydcclient/manifest.properties"
+
 
 def init_cmd_parser():
 	parser = argparse.ArgumentParser()
@@ -42,11 +45,11 @@ def init_cmd_parser():
 	parser.add_argument("-f", "--file", dest="files", action="append", help="File(s) to upload")
 	parser.add_argument("-v", "--version", action='version', version="ANU Data Uploader " + VERSION)
 
-	args = sys.argv
-	if len(args) <= 1:
-		args.append("-h")
+	if len(sys.argv) <= 1:
+		parser.print_help()
+		sys.exit()
 
-	return parser.parse_args(args)
+	return parser.parse_args()
 
 	
 def init_logging():
@@ -59,23 +62,29 @@ def check_file_exists(filename):
 
 
 def display_summary(pid, file_status):
-	print
-	print ("Upload Summary to", pid) 
-	print ("---------------------------")
+	print()
+	print("Upload Summary to", pid) 
+	print("---------------------------")
+	i = 0
 	for key, value in file_status.items():
-		print(key, ": ", end="")
+		i += 1
 		if value == 1:
-			print ("SUCCESS")
+			status = "SUCCESS"
 		else:
-			print ("ERROR")
+			status = "ERROR"
+		print("{}. {} : {}".format(str(i), key, status))
 
 
 def update():
-	updater = Updater(manifest_url=MANIFEST_URL, base_dir="..")
-	updater.update()
-
+	try:
+		updater = Updater(manifest_url=MANIFEST_URL, base_dir=os.path.dirname(os.path.abspath(__file__)))
+		updater.update()
+	except HTTPError as e:
+		print("Unable to download manifest file from " + MANIFEST_URL + " - skipping update. Error: " + str(e))
+		
 
 def main():
+	print()
 	cmd_params = init_cmd_parser()
 	init_logging()
 	
@@ -128,7 +137,7 @@ def main():
 		file_status = anudc.upload_files(pid, files_to_upload)
 		display_summary(pid, file_status)
 		
-	print
+	print()
 	
 
 if __name__ == '__main__':

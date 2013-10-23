@@ -24,6 +24,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 from datetime import datetime
 import os
 
+
+VERSION = "0.1-20131022"
+
+
 class ProgressFile:
 	def __init__(self, filename, mode):
 		self.__f = open(filename, mode)
@@ -45,7 +49,7 @@ class ProgressFile:
 				cur_kbps = 0
 				if denom > 0:
 					cur_kbps = (self.tell() / 1024) / ((ti - self.__t0).seconds + ((ti - self.__t0).microseconds / 1000000))
-				print("\r" + str(self.__percent_complete) + "%   [" + "{:,.1f}".format(cur_kbps) + " KB/s]" + " " * 10 + "\b" * 10, end="")
+				print("\r{}%  [{:,.1f} KB/s]{}{}".format(str(self.__percent_complete), cur_kbps, " " * 10, "\b" * 10), end="")
 		except Exception as e:
 			print()
 			print(e)
@@ -64,3 +68,4 @@ class ProgressFile:
 		
 	def __exit__(self):
 		self.__f.close()
+		

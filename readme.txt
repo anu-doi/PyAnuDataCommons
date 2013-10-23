@@ -1,7 +1,7 @@
 ANU Data Uploader
 
 Requirements:
-	Python 2.7
+	Python 3.3
 
 Usage:
 
