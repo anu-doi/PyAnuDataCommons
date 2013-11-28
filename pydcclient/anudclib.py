@@ -34,7 +34,7 @@ from datetime import datetime
 from progress import ProgressFile
 
 
-VERSION = "0.1-20131022"
+VERSION = "0.1-20131128"
 
 
 class AnudcClient:
@@ -126,21 +126,22 @@ class AnudcClient:
 
 	def create_relations(self, pid, relations):
 		print()
-		for link_type, related_pid in relations:
-			headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain", "User-Agent": self.__getuseragent()}
-			self.__add_auth_header(headers)
-		
-			url = self.__anudc_config.get_config_addlinkurl() + urllib.parse.quote(pid)
-			print("Creating relation: " + link_type + " " + related_pid)
-			urlencoded_link = urllib.parse.urlencode({"linkType": link_type, "itemId": related_pid})
+		if relations is not None:
+			for link_type, related_pid in relations:
+				headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain", "User-Agent": self.__getuseragent()}
+				self.__add_auth_header(headers)
 			
-			connection = self.__create_connection()
-			connection.request("POST", url, urlencoded_link, headers)
-			
-			response = connection.getresponse()
-			print("Status: " + str(response.status) + ", (" + response.reason + ")")
-			body = str(response.read().decode("utf-8"))
-			print("Body: " + body)
+				url = self.__anudc_config.get_config_addlinkurl() + urllib.parse.quote(pid)
+				print("Creating relation: " + link_type + " " + related_pid)
+				urlencoded_link = urllib.parse.urlencode({"linkType": link_type, "itemId": related_pid})
+				
+				connection = self.__create_connection()
+				connection.request("POST", url, urlencoded_link, headers)
+				
+				response = connection.getresponse()
+				print("Status: " + str(response.status) + ", (" + response.reason + ")")
+				body = str(response.read().decode("utf-8"))
+				print("Body: " + body)
 		
 	
 	

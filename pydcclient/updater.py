@@ -27,13 +27,13 @@ import configparser
 import os.path
 import time
 
-UPDATE_CHECK_THRESHOLD = 4 * 3600 * 3600
+UPDATE_CHECK_THRESHOLD = 24 * 3600 * 3600
 LOGGER_NAME = "Updater"
 MANIFEST_FILENAME = "manifest.properties"
 DISABLE_UPDATE_FILE = "DO_NOT_UPDATE"
 TEMP_FILE_SUFFIX = ".tmp"
 
-VERSION = "0.1-20131022"
+VERSION = "0.1-20131128"
 
 
 class Updater:
@@ -101,6 +101,7 @@ class Updater:
 	def update(self):
 		# Do not perform update if DO_NOT_UPDATE file exists.
 		if os.path.isfile(self.prepend_base_dir(DISABLE_UPDATE_FILE)):
+			self.__logger.info("File", DISABLE_UPDATE_FILE, "found. Skipping update")
 			return
 		
 		manifest_old_filepath = self.prepend_base_dir(MANIFEST_FILENAME)
