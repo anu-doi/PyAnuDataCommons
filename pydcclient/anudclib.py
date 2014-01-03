@@ -56,8 +56,10 @@ class AnudcClient:
 		if auth_token != None:
 			headers["X-Auth-Token"] = auth_token
 		elif username != None and password != None:
-			username_password = base64.encodestring("%s:%s" % (username, password)).replace('\n', '')
-			headers["Authorization"] = "Basic %s" % username_password
+			bytes_username_password = bytes(username + ":" + password, "utf-8")
+			bytes_username_password = base64.b64encode(bytes_username_password)
+			str_username_password = str_username_password = bytes_username_password.decode("utf-8")
+			headers["Authorization"] = "Basic %s" % str_username_password
 		else:
 			raise Exception
 	
