@@ -32,6 +32,7 @@ import http.client
 from datetime import datetime
 
 from progress import ProgressFile
+from shibbauth import ShibbolethAuthentication
 
 
 VERSION = "0.1-20131128"
@@ -43,6 +44,7 @@ class AnudcClient:
 		self.__anudc_config = AnudcServerConfig()
 		self.__hostname = self.__anudc_config.get_config_hostname()
 		self.__protocol = self.__anudc_config.get_config_protocol()
+		self.__cookie_jar = http.cookiejar.LWPCookieJar()
 
 	def __getuseragent(self):
 		return "Python/" + sys.version + " " + sys.platform
@@ -56,11 +58,30 @@ class AnudcClient:
 		if auth_token != None:
 			headers["X-Auth-Token"] = auth_token
 		elif username != None and password != None:
-			username_password = base64.encodestring("%s:%s" % (username, password)).replace('\n', '')
-			headers["Authorization"] = "Basic %s" % username_password
+			if "@" in username:
+				bytes_username_password = bytes(username + ":" + password, "utf-8")
+				bytes_username_password = base64.b64encode(bytes_username_password)
+				str_username_password = str_username_password = bytes_username_password.decode("utf-8")
+				headers["Authorization"] = "Basic %s" % str_username_password
+			else:
+				#if (self.__cookie_jar):
+				
+				shib_cookie = self.__get_shibboleth_cookie()
+				if (shib_cookie is None):
+					print("Authenticating to Shibboleth")
+					self.__cookie_jar = ShibbolethAuthentication.get_shibboleth_cookies('https://23wj72s.uds.anu.edu.au/idp/profile/SAML2/SOAP/ECP','https://23wj72s.uds.anu.edu.au/Shibboleth.sso/Login','myself','testpassword')
+					shib_cookie = self.__get_shibboleth_cookie()
+				
+				headers["Cookie"] = shib_cookie
 		else:
 			raise Exception
 	
+	def __get_shibboleth_cookie(self):
+		cookie_text = None
+		for cookie in self.__cookie_jar:
+			if "shibsession" in cookie.name:
+				cookie_text = cookie.name + "=" + cookie.value
+		return cookie_text
 	
 	def __create_connection(self):
 		if self.__protocol == "https":
@@ -69,6 +90,31 @@ class AnudcClient:
 			conn = http.client.HTTPConnection(self.__hostname)
 			
 		return conn
+	
+	def __upload_single_file(self, url, headers, filepath, data_file, file_upload_statuses, round = 1):
+		self.__add_auth_header(headers)
+		print("Uploading " + filepath + " to " + self.__hostname + url + "...")
+		data_file.seek(0)
+		
+		connection = self.__create_connection()
+		connection.request("POST", url, data_file, headers)
+		response = connection.getresponse()
+		response_text = response.read().decode("utf-8")
+		print()
+		print("RESPONSE: [" + str(response.status) + "] " + response.reason)
+		print("***********")
+		print(response_text)
+		print("***********")
+		if response.status == 200:
+			file_upload_statuses[filepath] = 1
+			print("File uploaded successfully.")
+		elif response.status == 401 and round == 1 and "error_code:1," in response_text:
+			print("Re-Authentication Required")
+			self.__cookie_jar.clear()
+			self.__upload_single_file(url, headers, filepath, data_file, file_upload_statuses, round + 1)
+		else:
+			file_upload_statuses[filepath] = 0;
+			print("ERROR while uploading file.")
 	
 	
 	def calc_md5(self, filepath):
@@ -144,7 +190,6 @@ class AnudcClient:
 				print("Body: " + body)
 		
 	
-	
 	def upload_files(self, pid, files_to_upload):
 		file_upload_statuses = {}
 		print()
@@ -159,28 +204,11 @@ class AnudcClient:
 				
 				md = self.calc_md5(filepath)
 				headers = {"Content-Type": "application/octet-stream", "Accept": "text/plain", "Content-MD5": md, "User-Agent": self.__getuseragent()}
-	
-				self.__add_auth_header(headers)
-	
+				
 				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + "/" + urllib.parse.quote(filename)
-				print("Uploading " + filepath + " to " + self.__hostname + url + "...")
 				data_file = ProgressFile(filepath, "rb")
 				
-				connection = self.__create_connection()
-				connection.request("POST", url, data_file, headers)
-				response = connection.getresponse()
-				print()
-				print("RESPONSE: [" + str(response.status) + "] " + response.reason)
-				print("***********")
-				print(response.read().decode("utf-8"))
-				print("***********")
-				if response.status == 200:
-					file_upload_statuses[filepath] = 1
-					print("File uploaded successfully.")
-				else:
-					file_upload_statuses[filepath] = 0;
-					print("ERROR while uploading file.")
-				print
+				self.__upload_single_file(url, headers, filepath, data_file, file_upload_statuses)
 			except Exception as e:
 				print()
 				print(e)
@@ -190,7 +218,6 @@ class AnudcClient:
 					data_file.close()
 
 		return file_upload_statuses
-	
 
 class AnudcServerConfig:
 	

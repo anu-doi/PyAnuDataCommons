@@ -69,3 +69,6 @@ class ProgressFile:
 	def __exit__(self):
 		self.__f.close()
 		
+	def seek(self, position):
+		self.__f.seek(position)
+		

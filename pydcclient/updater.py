@@ -101,7 +101,7 @@ class Updater:
 	def update(self):
 		# Do not perform update if DO_NOT_UPDATE file exists.
 		if os.path.isfile(self.prepend_base_dir(DISABLE_UPDATE_FILE)):
-			self.__logger.info("File", DISABLE_UPDATE_FILE, "found. Skipping update")
+			self.__logger.info("File "+ DISABLE_UPDATE_FILE+ " found. Skipping update")
 			return
 		
 		manifest_old_filepath = self.prepend_base_dir(MANIFEST_FILENAME)
