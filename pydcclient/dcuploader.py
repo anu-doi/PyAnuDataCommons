@@ -21,7 +21,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 @author: Rahul Khanna <rahul.khanna@anu.edu.au>
 '''
 
-# from optparse import OptionParser
 import argparse
 import os.path
 import logging
@@ -33,7 +32,7 @@ from anudclib import AnudcClient
 from updater import Updater
 
 
-VERSION = "0.1-20131022"
+VERSION = "0.1-20140128"
 MANIFEST_URL = "https://raw.github.com/anu-doi/PyAnuDataCommons/master/pydcclient/manifest.properties"
 
 
@@ -51,7 +50,7 @@ def init_cmd_parser():
 
 	return parser.parse_args()
 
-	
+
 def init_logging():
 	logging.basicConfig(level=logging.DEBUG, format=logging.BASIC_FORMAT)
 
@@ -63,16 +62,26 @@ def check_file_exists(filename):
 
 def display_summary(pid, file_status):
 	print()
-	print("Upload Summary to", pid) 
+	print("UPLOAD SUMMARY -", pid)
 	print("---------------------------")
 	i = 0
+	success_count = 0;
+	failed_count = 0;
 	for key, value in file_status.items():
 		i += 1
 		if value == 1:
 			status = "SUCCESS"
+			success_count += 1;
 		else:
 			status = "ERROR"
-		print("{}. {} : {}".format(str(i), key, status))
+			failed_count += 1;
+
+		try:
+			print("{}. {:>7} : {}".format(str(i), status, key))
+		except:
+			pass
+
+	print("{} successful. {} failed.".format(str(success_count), str(failed_count)))
 
 
 def update():
@@ -81,19 +90,42 @@ def update():
 		updater.update()
 	except HTTPError as e:
 		print("Unable to download manifest file from " + MANIFEST_URL + " - skipping update. Error: " + str(e))
-		
+
+
+def normalise_path_separators(path):
+	return path.replace("\\", "/")
+
+
+def list_files_in_dir(rootpath):
+	'''Lists files in the specified directory and all its subdirectories. If the specified path is a file, then the specified path itself is returned.
+	'''
+
+	filepath_list = []
+
+	if os.path.isdir(rootpath):
+		for root, dirs, files in os.walk(rootpath):
+			for file in files:
+				filepath = os.path.join(root, file)
+				filepath_list.append(normalise_path_separators(filepath))
+	elif os.path.isfile(rootpath):
+		filepath_list.append(normalise_path_separators(rootpath))
+	else:
+		print("WARNING: File or folder {} doesn't exist.".format(rootpath))
+
+	return filepath_list
+
 
 def main():
 	print()
 	cmd_params = init_cmd_parser()
 	init_logging()
-	
+
 	update()
-	
+
 	anudc = AnudcClient()
 	pid = None
 	files_to_upload = {}
-	
+
 	# If a metadata file has been provided as command line arg, then create the record from the data. If
 	# it doesn't exist and read files to upload from it.
 	if cmd_params.metadata_file != None:
@@ -101,24 +133,33 @@ def main():
 			raise Exception("Metadata file " + cmd_params.metadata_file + " doesn't exist.")
 
 		metadatafile = MetadataFile(cmd_params.metadata_file)
-		
+
 		# Create record if PID doesn't already exist in the metadata file. Else, read the PID to upload files to it.
 		if metadatafile.read_pid() == None:
 			pid = anudc.create_record(metadatafile)
 			metadatafile.write_pid(pid)
-			
+
 			# Create relations
 			anudc.create_relations(pid, metadatafile.read_relations())
 		else:
 			pid = metadatafile.read_pid()
 
-		# Add list of files to upload if any in the metadata file.		
+		# Add list of files to upload if any in the metadata file.
 		metadata_file_list = metadatafile.read_upload_files_list()
 		if metadata_file_list != None:
-			for name, filepath in metadata_file_list:
-				files_to_upload[name] = filepath
+			for target_rel_path, uploadable in metadata_file_list:
+				local_filepaths = list_files_in_dir(uploadable)
+				for local_filepath in local_filepaths:
+					if os.path.isfile(uploadable):
+						files_to_upload[target_rel_path] = local_filepath
+					elif os.path.isdir(uploadable):
+						relpath = target_rel_path
+						if relpath[-1:] != "/":
+							relpath += "/"
+						relpath += normalise_path_separators(os.path.relpath(local_filepath, os.path.dirname(uploadable)))
+						files_to_upload[relpath] = local_filepath
 
-	
+
 	# If a new record wasn't created and the PID wasn't found in metadata file, check if it's provided as a cmd arg.
 	if pid == None and cmd_params.pid != None:
 		pid = cmd_params.pid
@@ -129,16 +170,23 @@ def main():
 
 	# Add list of files to upload specified as cmd args.
 	if cmd_params.files != None:
-		for local_file_path in cmd_params.files:
-			files_to_upload[os.path.basename(local_file_path)] = local_file_path
-	
+		for file_param in cmd_params.files:
+			local_filepaths = list_files_in_dir(file_param)
+			for local_filepath in local_filepaths:
+				if os.path.isfile(file_param):
+					files_to_upload["/" + os.path.basename(local_filepath)] = local_filepath
+				elif os.path.isdir(file_param):
+					relpath = os.path.relpath(local_filepath, os.path.dirname(file_param))
+					files_to_upload["/" + relpath.replace("\\", "/")] = local_filepath
+
+
 	# If there are any files to upload, upload them.
 	if len(files_to_upload) > 0:
 		file_status = anudc.upload_files(pid, files_to_upload)
 		display_summary(pid, file_status)
-		
+
 	print()
-	
+
 
 if __name__ == '__main__':
 	main()

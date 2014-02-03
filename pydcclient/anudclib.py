@@ -34,7 +34,7 @@ from datetime import datetime
 from progress import ProgressFile
 
 
-VERSION = "0.1-20131128"
+VERSION = "0.1-20140128"
 
 
 class AnudcClient:
@@ -71,11 +71,17 @@ class AnudcClient:
 			conn = http.client.HTTPConnection(self.__hostname)
 			
 		return conn
+
+	
+	def sizeof_fmt(self, num):
+		for x in ['bytes','KB','MB','GB']:
+			if num < 1024.0 and num > -1024.0:
+				return "%3.1f %s" % (num, x)
+			num /= 1024.0
+		return "%3.1f %s" % (num, 'TB')
 	
 	
 	def calc_md5(self, filepath):
-		start_time = datetime.now()
-		print("Calculating MD5 for file " + filepath + "...")
 		block_size = 65536
 		data_file = None
 		try:
@@ -87,11 +93,7 @@ class AnudcClient:
 				digester.update(data_block)
 				data_block = data_file.read(block_size)
 			
-			print()
 			md5 = digester.hexdigest()
-			delta = datetime.now() - start_time
-			time_taken_sec = delta.seconds + (delta.microseconds / 1000000)
-			print("MD5: " + md5 + "     [Time taken " + "{:,.1f}".format(time_taken_sec) + " sec]")
 		finally:
 			if data_file != None:
 				data_file.close()
@@ -150,50 +152,60 @@ class AnudcClient:
 	def upload_files(self, pid, files_to_upload):
 		file_upload_statuses = {}
 		print()
-		for filename, filepath in files_to_upload.items():
-			print("Processing file " + filepath + ":")
-			
+		i = 0
+		n_files_to_upload = len(files_to_upload.items())
+		for target_path, local_filepath in files_to_upload.items():
+			i += 1
+			print("Processing file (" + str(i) + "/" + str(n_files_to_upload) + ") for " + pid + ":")
 			data_file = None
 			try:
 				# Check if the file exists.
-				if not os.path.isfile(filepath):
-					raise Exception("File " + filepath + " doesn't exist.")
+				if not os.path.isfile(local_filepath):
+					raise Exception("File " + local_filepath + " doesn't exist.")
 				
-				md = self.calc_md5(filepath)
+				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + urllib.parse.quote(target_path)
+				
+				print("\tSource File: " + local_filepath + "  (" + self.sizeof_fmt(os.path.getsize(local_filepath)) + ")")
+				print("\tTarget URL: " + self.__hostname + url)
+
+				print("\tCalculating MD5: ", end="")
+				start_time = datetime.now()
+				md = self.calc_md5(local_filepath)
+				delta = datetime.now() - start_time
+				time_taken_sec = delta.seconds + (delta.microseconds / 1000000)
+				print("\tMD5: " + md + "     [Time taken " + "{:,.1f}".format(time_taken_sec) + " sec]")
+
 				headers = {"Content-Type": "application/octet-stream", "Accept": "text/plain", "Content-MD5": md, "User-Agent": self.__getuseragent()}
-	
 				self.__add_auth_header(headers)
-	
-				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + "/" + urllib.parse.quote(filename)
-				print("Uploading " + filepath + " to " + self.__hostname + url + "...")
-				data_file = ProgressFile(filepath, "rb")
+				# print("Uploading " + local_filepath + " to " + self.__hostname + url + "...")
+				data_file = ProgressFile(local_filepath, "rb")
 				
+				start_time = datetime.now()
+				print("\tUploading: ", end="")
 				connection = self.__create_connection()
 				connection.request("POST", url, data_file, headers)
 				response = connection.getresponse()
-				print()
-				print("RESPONSE: [" + str(response.status) + "] " + response.reason)
-				print("***********")
-				print(response.read().decode("utf-8"))
-				print("***********")
-				if response.status == 200:
-					file_upload_statuses[filepath] = 1
-					print("File uploaded successfully.")
+				data_file.close()
+				print("\tResponse: [" + str(response.status) + ":" + response.reason + "] " + response.read().decode("utf-8"))
+				print("\tStatus: ", end="")
+				if response.status == 200 or response.status == 201:
+					file_upload_statuses[local_filepath] = 1
+					print("SUCCESS")
 				else:
-					file_upload_statuses[filepath] = 0;
-					print("ERROR while uploading file.")
+					file_upload_statuses[local_filepath] = 0;
+					print("ERROR")
 				print
 			except Exception as e:
 				print()
 				print(e)
-				file_upload_statuses[filepath] = 0
+				file_upload_statuses[local_filepath] = 0
 			finally:
 				if data_file is not None:
 					data_file.close()
 
 		return file_upload_statuses
-	
 
+	
 class AnudcServerConfig:
 	
 	def __init__(self):
@@ -257,7 +269,7 @@ class MetadataFile:
 		self.__config_parser.optionxform = str
 		
 		try:
-			fp = self.__open_file("r")
+			fp = self.__open_file("r", encoding='utf-8')
 			self.__config_parser.readfp(fp)
 		finally:
 			fp.close()
