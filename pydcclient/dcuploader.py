@@ -32,7 +32,7 @@ from anudclib import AnudcClient
 from updater import Updater
 
 
-VERSION = "0.1-20140128"
+VERSION = "0.1-20140204"
 MANIFEST_URL = "https://raw.github.com/anu-doi/PyAnuDataCommons/master/pydcclient/manifest.properties"
 
 
@@ -103,7 +103,10 @@ def list_files_in_dir(rootpath):
 	filepath_list = []
 
 	if os.path.isdir(rootpath):
-		for root, dirs, files in os.walk(rootpath):
+		# Must have topdown=True as we're modifying dirs in place to exclude those whose names start with '.'
+		for root, dirs, files in os.walk(rootpath, topdown=True):
+			dirs[:] = [d for d in dirs if not d[0] == '.']
+			files = [f for f in files if not f[0] == '.']
 			for file in files:
 				filepath = os.path.join(root, file)
 				filepath_list.append(normalise_path_separators(filepath))
