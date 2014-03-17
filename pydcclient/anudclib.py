@@ -29,20 +29,24 @@ import hashlib
 import configparser
 import logging
 import http.client
+import time
 from datetime import datetime
 
 from progress import ProgressFile
 
 
-VERSION = "0.1-20140128"
+VERSION = "0.1-20140318"
 
 
 class AnudcClient:
-
 	def __init__(self):
 		self.__anudc_config = AnudcServerConfig()
 		self.__hostname = self.__anudc_config.get_config_hostname()
 		self.__protocol = self.__anudc_config.get_config_protocol()
+		if self.__protocol == "https":
+			self.__conn = http.client.HTTPSConnection(self.__hostname)
+		else:
+			self.__conn = http.client.HTTPConnection(self.__hostname)
 
 	def __getuseragent(self):
 		return "Python/" + sys.version + " " + sys.platform
@@ -63,15 +67,6 @@ class AnudcClient:
 		else:
 			raise Exception
 	
-	
-	def __create_connection(self):
-		if self.__protocol == "https":
-			conn = http.client.HTTPSConnection(self.__hostname)
-		else:
-			conn = http.client.HTTPConnection(self.__hostname)
-			
-		return conn
-
 	
 	def sizeof_fmt(self, num):
 		for x in ['bytes','KB','MB','GB']:
@@ -100,6 +95,23 @@ class AnudcClient:
 
 		return md5
 	
+	def __wait_inter_fileupload(self):
+		delay_sec = int(self.__anudc_config.get_config_inter_fileupload_delay())
+		if delay_sec > 0:
+			try:
+				for i in range(0,delay_sec):
+					if sys.stdout.isatty():
+						status_str = "\rWaiting " + str(i + 1) + "/" + str(delay_sec) + "..." 
+						print(status_str, end="")
+						sys.stdout.flush()
+					time.sleep(1)
+				print()
+			except KeyboardInterrupt:
+				try:
+					input("Press Enter key to continue...")
+				except (KeyboardInterrupt):
+					return
+	
 	
 	def create_record(self, metadatafile):
 		headers = {"Content-Type": "application/x-www-form-urlencoded", "Accept": "text/plain", "User-Agent": self.__getuseragent()}
@@ -111,10 +123,9 @@ class AnudcClient:
 		print("Creating record at " + self.__hostname + url + " ...")
 		urlencoded_metadata = urllib.parse.urlencode(metadatafile.read_metadata_list())
 
-		connection = self.__create_connection()
-		connection.request("POST", url, urlencoded_metadata, headers)
+		self.__conn.request("POST", url, urlencoded_metadata, headers)
 		
-		response = connection.getresponse()
+		response = self.__conn.getresponse()
 		print("Status: " + str(response.status) + ", (" + response.reason + ")")
 		body = str(response.read().decode("utf-8"))
 		print("Body: " + body)
@@ -139,10 +150,9 @@ class AnudcClient:
 				print("Creating relation: " + link_type + " " + related_pid)
 				urlencoded_link = urllib.parse.urlencode({"linkType": link_type, "itemId": related_pid})
 				
-				connection = self.__create_connection()
-				connection.request("POST", url, urlencoded_link, headers)
+				self.__conn.request("POST", url, urlencoded_link, headers)
 				
-				response = connection.getresponse()
+				response = self.__conn.getresponse()
 				print("Status: " + str(response.status) + ", (" + response.reason + ")")
 				body = str(response.read().decode("utf-8"))
 				print("Body: " + body)
@@ -152,11 +162,11 @@ class AnudcClient:
 	def upload_files(self, pid, files_to_upload):
 		file_upload_statuses = {}
 		print()
-		i = 0
+		cur_file_count = 0
 		n_files_to_upload = len(files_to_upload.items())
 		for target_path, local_filepath in files_to_upload.items():
-			i += 1
-			print("Processing file (" + str(i) + "/" + str(n_files_to_upload) + ") for " + pid + ":")
+			cur_file_count += 1
+			print("Processing file (" + str(cur_file_count) + "/" + str(n_files_to_upload) + ") for " + pid + ":")
 			data_file = None
 			try:
 				# Check if the file exists.
@@ -169,6 +179,7 @@ class AnudcClient:
 				print("\tTarget URL: " + self.__hostname + url)
 
 				print("\tCalculating MD5: ", end="")
+				sys.stdout.flush()
 				start_time = datetime.now()
 				md = self.calc_md5(local_filepath)
 				delta = datetime.now() - start_time
@@ -177,22 +188,60 @@ class AnudcClient:
 
 				headers = {"Content-Type": "application/octet-stream", "Accept": "text/plain", "Content-MD5": md, "User-Agent": self.__getuseragent()}
 				self.__add_auth_header(headers)
-				# print("Uploading " + local_filepath + " to " + self.__hostname + url + "...")
-				data_file = ProgressFile(local_filepath, "rb")
+				
+				retry_count = 3
+				should_upload = True
+				while retry_count > 0:
+					try:
+						self.__conn.request("HEAD", url, None, headers)
+						response = self.__conn.getresponse()
+						if response.status != 404:
+							if response.getheader("Content-MD5") == md:
+								# Need to read whole response before sending next request
+								response.read()
+								print("\tServer contains exact copy of " + local_filepath + ": SKIPPING.")
+								print()
+								file_upload_statuses[local_filepath] = 1
+								should_upload = False
+								break
+						response.read()
+						retry_count = 0
+					except:
+						self.__conn.close()
+						self.__conn.connect()
+						retry_count -= 1
+					finally:
+						response.read()
+				
+				if not should_upload:
+					continue
 				
 				start_time = datetime.now()
-				print("\tUploading: ", end="")
-				connection = self.__create_connection()
-				connection.request("POST", url, data_file, headers)
-				response = connection.getresponse()
-				data_file.close()
+				retry_count = 3
+				while retry_count > 0:
+					try:
+						print("\tUploading: ", end="")
+						data_file = ProgressFile(local_filepath, "rb")
+						self.__conn.request("POST", url, data_file, headers)
+						retry_count = 0
+					except:
+						e = sys.exc_info()[0]
+						print("Retrying because of:", e)
+						self.__conn.close()
+						self.__conn.connect()
+						retry_count -= 1
+					finally:
+						if data_file is not None:
+							data_file.close()
+				
+				response = self.__conn.getresponse()
 				print("\tResponse: [" + str(response.status) + ":" + response.reason + "] " + response.read().decode("utf-8"))
 				print("\tStatus: ", end="")
 				if response.status == 200 or response.status == 201:
 					file_upload_statuses[local_filepath] = 1
 					print("SUCCESS")
 				else:
-					file_upload_statuses[local_filepath] = 0;
+					file_upload_statuses[local_filepath] = 0
 					print("ERROR")
 				print
 			except Exception as e:
@@ -202,6 +251,9 @@ class AnudcClient:
 			finally:
 				if data_file is not None:
 					data_file.close()
+					
+			if cur_file_count < n_files_to_upload:
+				self.__wait_inter_fileupload();
 
 		return file_upload_statuses
 
@@ -253,6 +305,12 @@ class AnudcServerConfig:
 	
 	def get_config_protocol(self):
 		return self.get_config_value(self.__metadata_section, "proto")
+	
+	def get_config_inter_fileupload_delay(self):
+		delay = self.get_config_value(self.__metadata_section, "inter_fileupload_delay")
+		if delay is None:
+			delay = 3
+		return delay
 	
 	
 class MetadataFile:

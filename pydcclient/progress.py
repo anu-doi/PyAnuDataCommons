@@ -26,7 +26,7 @@ import sys
 import os
 
 
-VERSION = "0.1-20140128"
+VERSION = "0.1-20140318"
 
 
 class ProgressFile:
@@ -65,7 +65,7 @@ class ProgressFile:
 		data = self.__f.read(size)
 		# If the output is going to a log file, don't display progress.
 		if sys.stdout.isatty():
-			self.__disp_progress
+			self.__disp_progress()
 			
 		return data
 
