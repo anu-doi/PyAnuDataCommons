@@ -45,6 +45,7 @@ class AnudcClient:
 		self.__hostname = self.__anudc_config.get_config_hostname()
 		self.__protocol = self.__anudc_config.get_config_protocol()
 		self.__cookie_jar = http.cookiejar.LWPCookieJar()
+		self.__idp_url = self.__anudc_config.get_config_idp_url()
 
 	def __getuseragent(self):
 		return "Python/" + sys.version + " " + sys.platform
@@ -64,12 +65,11 @@ class AnudcClient:
 				str_username_password = str_username_password = bytes_username_password.decode("utf-8")
 				headers["Authorization"] = "Basic %s" % str_username_password
 			else:
-				#if (self.__cookie_jar):
-				
 				shib_cookie = self.__get_shibboleth_cookie()
 				if (shib_cookie is None):
 					print("Authenticating to Shibboleth")
-					self.__cookie_jar = ShibbolethAuthentication.get_shibboleth_cookies('https://23wj72s.uds.anu.edu.au/idp/profile/SAML2/SOAP/ECP','https://23wj72s.uds.anu.edu.au/Shibboleth.sso/Login','myself','testpassword')
+					sp_url = self.__protocol + "://" + self.__hostname + "/Shibboleth.sso/Login"
+					self.__cookie_jar = ShibbolethAuthentication.get_shibboleth_cookies(self.__idp_url, sp_url, username, password)
 					shib_cookie = self.__get_shibboleth_cookie()
 				
 				headers["Cookie"] = shib_cookie
@@ -266,6 +266,9 @@ class AnudcServerConfig:
 	
 	def get_config_protocol(self):
 		return self.get_config_value(self.__metadata_section, "proto")
+	
+	def get_config_idp_url(self):
+		return self.get_config_value(self.__metadata_section, "shibboleth_idp_url")
 	
 	
 class MetadataFile:
