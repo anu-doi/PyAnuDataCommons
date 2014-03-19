@@ -29,23 +29,27 @@ import hashlib
 import configparser
 import logging
 import http.client
+import time
 from datetime import datetime
 
 from progress import ProgressFile
 from shibbauth import ShibbolethAuthentication
 
 
-VERSION = "0.1-20131128"
+VERSION = "0.1-20140318"
 
 
 class AnudcClient:
-
 	def __init__(self):
 		self.__anudc_config = AnudcServerConfig()
 		self.__hostname = self.__anudc_config.get_config_hostname()
 		self.__protocol = self.__anudc_config.get_config_protocol()
 		self.__cookie_jar = http.cookiejar.LWPCookieJar()
 		self.__idp_url = self.__anudc_config.get_config_idp_url()
+		if self.__protocol == "https":
+			self.__conn = http.client.HTTPSConnection(self.__hostname)
+		else:
+			self.__conn = http.client.HTTPConnection(self.__hostname)
 
 	def __getuseragent(self):
 		return "Python/" + sys.version + " " + sys.platform
@@ -83,43 +87,15 @@ class AnudcClient:
 				cookie_text = cookie.name + "=" + cookie.value
 		return cookie_text
 	
-	def __create_connection(self):
-		if self.__protocol == "https":
-			conn = http.client.HTTPSConnection(self.__hostname)
-		else:
-			conn = http.client.HTTPConnection(self.__hostname)
-			
-		return conn
-	
-	def __upload_single_file(self, url, headers, filepath, data_file, file_upload_statuses, round = 1):
-		self.__add_auth_header(headers)
-		print("Uploading " + filepath + " to " + self.__hostname + url + "...")
-		data_file.seek(0)
-		
-		connection = self.__create_connection()
-		connection.request("POST", url, data_file, headers)
-		response = connection.getresponse()
-		response_text = response.read().decode("utf-8")
-		print()
-		print("RESPONSE: [" + str(response.status) + "] " + response.reason)
-		print("***********")
-		print(response_text)
-		print("***********")
-		if response.status == 200:
-			file_upload_statuses[filepath] = 1
-			print("File uploaded successfully.")
-		elif response.status == 401 and round == 1 and "error_code:1," in response_text:
-			print("Re-Authentication Required")
-			self.__cookie_jar.clear()
-			self.__upload_single_file(url, headers, filepath, data_file, file_upload_statuses, round + 1)
-		else:
-			file_upload_statuses[filepath] = 0;
-			print("ERROR while uploading file.")
+	def sizeof_fmt(self, num):
+		for x in ['bytes','KB','MB','GB']:
+			if num < 1024.0 and num > -1024.0:
+				return "%3.1f %s" % (num, x)
+			num /= 1024.0
+		return "%3.1f %s" % (num, 'TB')
 	
 	
 	def calc_md5(self, filepath):
-		start_time = datetime.now()
-		print("Calculating MD5 for file " + filepath + "...")
 		block_size = 65536
 		data_file = None
 		try:
@@ -131,16 +107,29 @@ class AnudcClient:
 				digester.update(data_block)
 				data_block = data_file.read(block_size)
 			
-			print()
 			md5 = digester.hexdigest()
-			delta = datetime.now() - start_time
-			time_taken_sec = delta.seconds + (delta.microseconds / 1000000)
-			print("MD5: " + md5 + "     [Time taken " + "{:,.1f}".format(time_taken_sec) + " sec]")
 		finally:
 			if data_file != None:
 				data_file.close()
 
 		return md5
+	
+	def __wait_inter_fileupload(self):
+		delay_sec = int(self.__anudc_config.get_config_inter_fileupload_delay())
+		if delay_sec > 0:
+			try:
+				for i in range(0,delay_sec):
+					if sys.stdout.isatty():
+						status_str = "\rWaiting " + str(i + 1) + "/" + str(delay_sec) + "..." 
+						print(status_str, end="")
+						sys.stdout.flush()
+					time.sleep(1)
+				print()
+			except KeyboardInterrupt:
+				try:
+					input("Press Enter key to continue...")
+				except (KeyboardInterrupt):
+					return
 	
 	
 	def create_record(self, metadatafile):
@@ -153,10 +142,9 @@ class AnudcClient:
 		print("Creating record at " + self.__hostname + url + " ...")
 		urlencoded_metadata = urllib.parse.urlencode(metadatafile.read_metadata_list())
 
-		connection = self.__create_connection()
-		connection.request("POST", url, urlencoded_metadata, headers)
+		self.__conn.request("POST", url, urlencoded_metadata, headers)
 		
-		response = connection.getresponse()
+		response = self.__conn.getresponse()
 		print("Status: " + str(response.status) + ", (" + response.reason + ")")
 		body = str(response.read().decode("utf-8"))
 		print("Body: " + body)
@@ -181,10 +169,9 @@ class AnudcClient:
 				print("Creating relation: " + link_type + " " + related_pid)
 				urlencoded_link = urllib.parse.urlencode({"linkType": link_type, "itemId": related_pid})
 				
-				connection = self.__create_connection()
-				connection.request("POST", url, urlencoded_link, headers)
+				self.__conn.request("POST", url, urlencoded_link, headers)
 				
-				response = connection.getresponse()
+				response = self.__conn.getresponse()
 				print("Status: " + str(response.status) + ", (" + response.reason + ")")
 				body = str(response.read().decode("utf-8"))
 				print("Body: " + body)
@@ -193,32 +180,118 @@ class AnudcClient:
 	def upload_files(self, pid, files_to_upload):
 		file_upload_statuses = {}
 		print()
-		for filename, filepath in files_to_upload.items():
-			print("Processing file " + filepath + ":")
-			
+		cur_file_count = 0
+		n_files_to_upload = len(files_to_upload.items())
+		for target_path, local_filepath in files_to_upload.items():
+			cur_file_count += 1
+			print("Processing file (" + str(cur_file_count) + "/" + str(n_files_to_upload) + ") for " + pid + ":")
 			data_file = None
 			try:
 				# Check if the file exists.
-				if not os.path.isfile(filepath):
-					raise Exception("File " + filepath + " doesn't exist.")
+				if not os.path.isfile(local_filepath):
+					raise Exception("File " + local_filepath + " doesn't exist.")
 				
-				md = self.calc_md5(filepath)
+				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + urllib.parse.quote(target_path)
+				
+				print("\tSource File: " + local_filepath + "  (" + self.sizeof_fmt(os.path.getsize(local_filepath)) + ")")
+				print("\tTarget URL: " + self.__hostname + url)
+
+				print("\tCalculating MD5: ", end="")
+				sys.stdout.flush()
+				start_time = datetime.now()
+				md = self.calc_md5(local_filepath)
+				delta = datetime.now() - start_time
+				time_taken_sec = delta.seconds + (delta.microseconds / 1000000)
+				print("\tMD5: " + md + "     [Time taken " + "{:,.1f}".format(time_taken_sec) + " sec]")
+
 				headers = {"Content-Type": "application/octet-stream", "Accept": "text/plain", "Content-MD5": md, "User-Agent": self.__getuseragent()}
+				self.__add_auth_header(headers)
 				
-				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + "/" + urllib.parse.quote(filename)
-				data_file = ProgressFile(filepath, "rb")
+				retry_count = 3
+				should_upload = True
+				while retry_count > 0:
+					try:
+						self.__conn.request("HEAD", url, None, headers)
+						response = self.__conn.getresponse()
+						if response.status == 401:
+							response_text = response.read().decode("utf-8")
+							if "error_code:1," in response_text:
+								self.__cookie_jar.clear()
+								self.__add_auth_header(headers)
+								retry_count -= 1
+							else:
+								retry_count = 0
+						elif response.status != 404:
+							if response.getheader("Content-MD5") == md:
+								# Need to read whole response before sending next request
+								response.read()
+								print("\tServer contains exact copy of " + local_filepath + ": SKIPPING.")
+								print()
+								file_upload_statuses[local_filepath] = 1
+								should_upload = False
+								break
+						else:
+							response.read()
+							retry_count = 0
+					except:
+						self.__conn.close()
+						self.__conn.connect()
+						retry_count -= 1
+					finally:
+						response.read()
 				
-				self.__upload_single_file(url, headers, filepath, data_file, file_upload_statuses)
+				if not should_upload:
+					continue
+				
+				start_time = datetime.now()
+				retry_count = 3
+				while retry_count > 0:
+					try:
+						print("\tUploading: ", end="")
+						data_file = ProgressFile(local_filepath, "rb")
+						self.__conn.request("POST", url, data_file, headers)
+						retry_count = 0
+						
+						response = self.__conn.getresponse()
+						response_text = response.read().decode("utf-8")
+						print("\tResponse: [" + str(response.status) + ":" + response.reason + "] " + response_text)
+						print("\tStatus: ", end="")
+						if response.status == 401 and "error_code:1," in response_text:
+							self.__cookie_jar.clear()
+							print("Re-Authenticating...")
+							self.__add_auth_header(headers)
+							retry_count -= 1
+						elif response.status == 200 or response.status == 201:
+							file_upload_statuses[local_filepath] = 1
+							print("SUCCESS")
+						else:
+							file_upload_statuses[local_filepath] = 0
+							print("ERROR")
+						print
+					except:
+						e = sys.exc_info()[0]
+						print("Retrying because of:", e)
+						self.__conn.close()
+						self.__conn.connect()
+						retry_count -= 1
+					finally:
+						if data_file is not None:
+							data_file.close()
+				
 			except Exception as e:
 				print()
 				print(e)
-				file_upload_statuses[filepath] = 0
+				file_upload_statuses[local_filepath] = 0
 			finally:
 				if data_file is not None:
 					data_file.close()
+					
+			if cur_file_count < n_files_to_upload:
+				self.__wait_inter_fileupload();
 
 		return file_upload_statuses
 
+	
 class AnudcServerConfig:
 	
 	def __init__(self):
@@ -270,6 +343,12 @@ class AnudcServerConfig:
 	def get_config_idp_url(self):
 		return self.get_config_value(self.__metadata_section, "shibboleth_idp_url")
 	
+	def get_config_inter_fileupload_delay(self):
+		delay = self.get_config_value(self.__metadata_section, "inter_fileupload_delay")
+		if delay is None:
+			delay = 3
+		return delay
+	
 	
 class MetadataFile:
 
@@ -285,7 +364,7 @@ class MetadataFile:
 		self.__config_parser.optionxform = str
 		
 		try:
-			fp = self.__open_file("r")
+			fp = self.__open_file("r", encoding='utf-8')
 			self.__config_parser.readfp(fp)
 		finally:
 			fp.close()
