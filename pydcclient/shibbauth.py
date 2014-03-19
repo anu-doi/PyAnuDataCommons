@@ -80,6 +80,15 @@ class MyCookieJar(http.cookiejar.MozillaCookieJar):
 class ShibbolethAuthentication:
 	
 	def get_shibboleth_cookies(idp_endpoint, sp_login_url, username, password, debug=False):
+		if idp_endpoint is None:
+			raise Exception("No IdP end point defined for shibboleth authentication")
+		if sp_login_url is None:
+			raise Exception("No SP login url defined for shibboleth authentication")
+		if username is None:
+			raise Exception("No username set for shibboleth authentication")
+		if password is None:
+			raise Exception("No password set for shibboleth authentication")
+		
 		cookie_jar = http.cookiejar.LWPCookieJar()
 		cookie_handler = urllib.request.HTTPCookieProcessor(cookie_jar)
 		
