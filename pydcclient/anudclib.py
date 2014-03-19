@@ -230,6 +230,9 @@ class AnudcClient:
 								file_upload_statuses[local_filepath] = 1
 								should_upload = False
 								break
+							else:
+								response.read()
+								retry_count = 0
 						else:
 							response.read()
 							retry_count = 0
