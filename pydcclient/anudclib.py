@@ -35,7 +35,7 @@ from datetime import datetime
 from progress import ProgressFile
 
 
-VERSION = "0.1-20140318"
+VERSION = "0.1-20140410"
 
 
 class AnudcClient:
@@ -68,7 +68,7 @@ class AnudcClient:
 			raise Exception
 	
 	
-	def sizeof_fmt(self, num):
+	def __sizeof_fmt(self, num):
 		for x in ['bytes','KB','MB','GB']:
 			if num < 1024.0 and num > -1024.0:
 				return "%3.1f %s" % (num, x)
@@ -76,7 +76,7 @@ class AnudcClient:
 		return "%3.1f %s" % (num, 'TB')
 	
 	
-	def calc_md5(self, filepath):
+	def __calc_md5(self, filepath):
 		block_size = 65536
 		data_file = None
 		try:
@@ -175,13 +175,13 @@ class AnudcClient:
 				
 				url = self.__anudc_config.get_config_uploadfileurl() + urllib.parse.quote(pid) + "/" + "data" + urllib.parse.quote(target_path)
 				
-				print("\tSource File: " + local_filepath + "  (" + self.sizeof_fmt(os.path.getsize(local_filepath)) + ")")
+				print("\tSource File: " + local_filepath + "  (" + self.__sizeof_fmt(os.path.getsize(local_filepath)) + ")")
 				print("\tTarget URL: " + self.__hostname + url)
 
 				print("\tCalculating MD5: ", end="")
 				sys.stdout.flush()
 				start_time = datetime.now()
-				md = self.calc_md5(local_filepath)
+				md = self.__calc_md5(local_filepath)
 				delta = datetime.now() - start_time
 				time_taken_sec = delta.seconds + (delta.microseconds / 1000000)
 				print("\tMD5: " + md + "     [Time taken " + "{:,.1f}".format(time_taken_sec) + " sec]")
@@ -191,6 +191,7 @@ class AnudcClient:
 				
 				retry_count = 3
 				should_upload = True
+				response = None
 				while retry_count > 0:
 					try:
 						self.__conn.request("HEAD", url, None, headers)
@@ -198,20 +199,20 @@ class AnudcClient:
 						if response.status != 404:
 							if response.getheader("Content-MD5") == md:
 								# Need to read whole response before sending next request
-								response.read()
 								print("\tServer contains exact copy of " + local_filepath + ": SKIPPING.")
 								print()
 								file_upload_statuses[local_filepath] = 1
 								should_upload = False
 								break
-						response.read()
 						retry_count = 0
 					except:
 						self.__conn.close()
+						time.sleep(10)
 						self.__conn.connect()
 						retry_count -= 1
 					finally:
-						response.read()
+						if response != None:
+							response.read()
 				
 				if not should_upload:
 					continue
@@ -224,25 +225,26 @@ class AnudcClient:
 						data_file = ProgressFile(local_filepath, "rb")
 						self.__conn.request("POST", url, data_file, headers)
 						retry_count = 0
+						response = self.__conn.getresponse()
+						print("\tResponse: [" + str(response.status) + ":" + response.reason + "] " + response.read().decode("utf-8"))
+						print("\tStatus: ", end="")
+						if response.status == 200 or response.status == 201:
+							file_upload_statuses[local_filepath] = 1
+							print("SUCCESS")
+						else:
+							file_upload_statuses[local_filepath] = 0
+							print("ERROR")
 					except:
 						e = sys.exc_info()[0]
 						print("Retrying because of:", e)
 						self.__conn.close()
+						time.sleep(10)
 						self.__conn.connect()
 						retry_count -= 1
 					finally:
 						if data_file is not None:
 							data_file.close()
 				
-				response = self.__conn.getresponse()
-				print("\tResponse: [" + str(response.status) + ":" + response.reason + "] " + response.read().decode("utf-8"))
-				print("\tStatus: ", end="")
-				if response.status == 200 or response.status == 201:
-					file_upload_statuses[local_filepath] = 1
-					print("SUCCESS")
-				else:
-					file_upload_statuses[local_filepath] = 0
-					print("ERROR")
 				print
 			except Exception as e:
 				print()
@@ -251,6 +253,8 @@ class AnudcClient:
 			finally:
 				if data_file is not None:
 					data_file.close()
+				if response is not None:
+					response.read()
 					
 			if cur_file_count < n_files_to_upload:
 				self.__wait_inter_fileupload();
