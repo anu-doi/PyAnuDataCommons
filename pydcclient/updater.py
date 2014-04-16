@@ -27,13 +27,13 @@ import configparser
 import os.path
 import time
 
-UPDATE_CHECK_THRESHOLD = 24 * 3600 * 3600
+UPDATE_CHECK_THRESHOLD = 24 * 60 * 60
 LOGGER_NAME = "Updater"
 MANIFEST_FILENAME = "manifest.properties"
 DISABLE_UPDATE_FILE = "DO_NOT_UPDATE"
 TEMP_FILE_SUFFIX = ".tmp"
 
-VERSION = "0.1-20131128"
+VERSION = "0.1-20140416"
 
 
 class Updater:

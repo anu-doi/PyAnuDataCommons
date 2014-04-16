@@ -35,7 +35,7 @@ from anudclib import AnudcClient
 from updater import Updater
 
 
-VERSION = "0.1-20140410"
+VERSION = "0.1-20140416"
 MANIFEST_URL = "https://raw.github.com/anu-doi/PyAnuDataCommons/master/pydcclient/manifest.properties"
 
 
@@ -213,7 +213,7 @@ class CommandLineManager():
 			raise Exception("No Pid available")
 	
 		# Add list of files to upload specified as cmd args.
-		files_to_upload.update(create_uploadables(self.__cmd_params.files))
+		files_to_upload.update(create_uploadables("/", self.__cmd_params.files))
 	# 	if cmd_params.files != None:
 	# 		for file_param in cmd_params.files:
 	# 			local_filepaths = list_files_in_dir(file_param)
