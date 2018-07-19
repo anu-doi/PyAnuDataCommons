@@ -382,6 +382,6 @@ class MetadataFile:
 		return relations
 		
 		
-	def __open_file(self, mode):
+	def __open_file(self, mode, encoding='utf-8'):
 		fp = open(self.__filename, mode)
 		return fp
