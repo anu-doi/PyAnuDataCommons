@@ -316,18 +316,19 @@ class AnudcServerConfig:
 			delay = 3
 		return delay
 	
-	
 class MetadataFile:
 
-	def __init__(self, filename):
+	def __init__(self, filename, delimiter="||"):
 		self.__filename = filename
 		
 		self.__metadata_section = "metadata"
 		self.__pid_section = "pid"
 		self.__upload_files_section = "files"
 		self.__relations_section = "relations"
+		self.__delimiter = delimiter
 		
 		self.__config_parser = configparser.ConfigParser()
+#		self.__config_parser = configparser.ConfigParser(dict_type=MultiOrderedDict,strict=False)
 		self.__config_parser.optionxform = str
 		
 		try:
@@ -338,7 +339,15 @@ class MetadataFile:
 
 		
 	def read_metadata_list(self):
-		metadata = self.__config_parser.items(self.__metadata_section)
+		parsermetadata = self.__config_parser.items(self.__metadata_section)
+		
+		metadata = []
+		
+		for key, value in parsermetadata:
+			splitvals = value.split(sep=self.__delimiter)
+			for val in splitvals:
+				metadata.append((key,val))
+		
 		for key, value in metadata:
 			logging.debug(key + ": " + value)
 
