@@ -35,7 +35,7 @@ from anudclib import AnudcClient
 from updater import Updater
 
 
-VERSION = "0.1-20140416"
+VERSION = "0.1-20180907"
 MANIFEST_URL = "https://raw.github.com/anu-doi/PyAnuDataCommons/master/pydcclient/manifest.properties"
 
 

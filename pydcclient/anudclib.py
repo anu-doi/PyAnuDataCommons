@@ -118,7 +118,9 @@ class AnudcClient:
 		
 		self.__add_auth_header(headers)
 		
-		url = self.__anudc_config.get_config_createurl()
+		template = metadatafile.read_template()
+		
+		url = self.__anudc_config.get_config_createurl(template)
 		print()
 		print("Creating record at " + self.__hostname + url + " ...")
 		urlencoded_metadata = urllib.parse.urlencode(metadatafile.read_metadata_list())
@@ -286,8 +288,11 @@ class AnudcServerConfig:
 	def get_config_hostname(self):
 		return self.get_config_value(self.__metadata_section, "host")
 	
-	def get_config_createurl(self):
-		return self.get_config_value(self.__metadata_section, "create_url")
+	def get_config_createurl(self, template):
+		url = self.get_config_value(self.__metadata_section, "create_url")
+		if template != None:
+			url = url + "?tmplt=" + template
+		return url
 	
 	def get_config_uploadfileurl(self):
 		return self.get_config_value(self.__metadata_section, "uploadfile_url")
@@ -325,6 +330,7 @@ class MetadataFile:
 		self.__pid_section = "pid"
 		self.__upload_files_section = "files"
 		self.__relations_section = "relations"
+		self.__template_section = "template"
 		self.__delimiter = delimiter
 		
 		self.__config_parser = configparser.ConfigParser()
@@ -337,7 +343,14 @@ class MetadataFile:
 		finally:
 			fp.close()
 
+	def read_template(self):
+		try:
+			template = self.__config_parser.get(self.__template_section, "template")
+		except:
+			template = None
+		return template
 		
+	
 	def read_metadata_list(self):
 		parsermetadata = self.__config_parser.items(self.__metadata_section)
 		
@@ -384,10 +397,15 @@ class MetadataFile:
 		
 	def read_relations(self):
 		try:
-			relations = self.__config_parser.items(self.__relations_section)
+			relations = []
+			relationsmetadata = self.__config_parser.items(self.__relations_section)
+			for key, value in relationsmetadata:
+				splitvals = value.split(sep=self.__delimiter)
+				for val in splitvals:
+					relations.append((key,val))
 		except:
 			relations = None
-			
+		
 		return relations
 		
 		
